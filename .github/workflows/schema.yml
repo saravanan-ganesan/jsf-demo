@@ -1,0 +1,89 @@
+name: Glue Schema Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment (dev/stage/prod)"
+        required: true
+        type: string
+      region:
+        description: "AWS region to deploy"
+        required: true
+        default: "us-west-2"
+        type: string
+      business-unit:
+        description: "Business unit (if applicable)"
+        required: false
+        type: string
+
+permissions:
+  id-token: write
+  contents: write
+  checks: read
+  security-events: read
+  actions: write
+  pull-requests: write
+  packages: read
+
+jobs:
+  glue_schema_setup:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      # ---------------------------------------------------------
+      # Step 1: Checkout repository
+      # ---------------------------------------------------------
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ---------------------------------------------------------
+      # Step 2: Configure AWS Credentials by assuming role
+      # (Update role-to-assume based on your AWS account setup)
+      # ---------------------------------------------------------
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-west-2
+
+      # ---------------------------------------------------------
+      # Step 3: Create/Update Glue Schema
+      # ---------------------------------------------------------
+      - name: Create or Update Glue Schemas
+        shell: bash
+        env:
+          AWS_DEFAULT_REGION: ${{ inputs.region }}
+        run: |
+          set -e
+
+          echo "Starting Glue Schema processing..."
+
+          for schema_file in schema/*.json; do
+            schema_name=$(basename "$schema_file" .json)
+
+            echo "Processing schema: $schema_name"
+
+            # Check whether schema exists
+            if aws glue get-schema --schema-id SchemaName="$schema_name",RegistryName=d2cSchemaRegistry >/dev/null 2>&1; then
+          
+              echo "Schema exists → Updating schema $schema_name"
+              aws glue update-schema \
+                --schema-id SchemaName="$schema_name",RegistryName=d2cSchemaRegistry \
+                --schema-definition "$(cat $schema_file)"
+
+            else
+          
+              echo "Schema does not exist → Creating schema $schema_name"
+              aws glue create-schema \
+                --registry-id RegistryName=d2cSchemaRegistry \
+                --schema-name "$schema_name" \
+                --data-format JSON \
+                --compatibility NONE \
+                --schema-definition "$(cat $schema_file)"
+            fi
+          done
+
+          echo "Glue Schema Deployment Completed Successfully"
