@@ -9,17 +9,13 @@
       "type": "string",
       "description": "Unique user identifier (UUID)"
     },
-    "email": {
-      "type": "string",
-      "format": "email",
-      "description": "User email address"
-    },
     "firstName": {
       "type": "string",
       "description": "User first name"
     },
-    
-
+    "lastName": {
+      "type": "string"
+    },
     "address": {
       "type": "object",
       "description": "User primary address",
