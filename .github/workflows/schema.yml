@@ -56,21 +56,25 @@ jobs:
       # ---------------------------------------------------------
       - name: Install AWS CLI v2
         run: |
-          echo "Installing AWS CLI v2"
+          echo "Installing AWS CLI v2 in $HOME/bin..."
+          
           mkdir -p $HOME/aws-cli-install
           cd $HOME/aws-cli-install
+          
           curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
           unzip -o awscliv2.zip
-          ./aws/install \
-          --install-dir $HOME/.local/aws-cli \
-          --bin-dir $HOME/.local/bin \
-          --update
-          echo "AWS CLI installed at $HOME/.local/bin/aws"
-          echo "$HOME/.local/bin" >> $GITHUB_PATH 2>/dev/null || true
           
-          export PATH="$PATH:$HOME/.local/bin"
+          # Install to user directory
+          ./aws/install --install-dir $HOME/aws-cli --bin-dir $HOME/bin --update
+          
+          # Add to PATH
+          export PATH=$HOME/bin:$PATH
+          echo "$HOME/bin" >> $GITHUB_PATH
+          
+          # Verify version
           aws --version
-
+          which aws
+    
       # ---------------------------------------------------------
       # Step 4: Create/Update Glue Schema
       # ---------------------------------------------------------
