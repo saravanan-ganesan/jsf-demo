@@ -3,10 +3,6 @@ name: Glue Schema Deployment
 on:
   workflow_dispatch:
     inputs:
-      environment:
-        description: "Environment (dev/stage/prod)"
-        required: true
-        type: string
       region:
         description: "AWS region to deploy"
         required: true
@@ -64,28 +60,27 @@ jobs:
           curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
           unzip -o awscliv2.zip
           
-          # Install to user directory
+          # Install AWS CLI to user directory
           ./aws/install --install-dir $HOME/aws-cli --bin-dir $HOME/bin --update
           
-          # Add to PATH
+          # Ensure correct CLI is used
           export PATH=$HOME/bin:$PATH
           echo "$HOME/bin" >> $GITHUB_PATH
           
-          # Verify version
-          aws --version
+          # Verify installation
           which aws
-    
+          aws --version
+
       # ---------------------------------------------------------
       # Step 4: Create/Update Glue Schema
       # ---------------------------------------------------------
-      - name: Create or Update Glue Schemas
-        shell: bash
-        env:
-          AWS_DEFAULT_REGION: ${{ inputs.region }}
+      - name: Deploy Glue Schemas
         run: |
           set -e
-
           echo "Starting Glue Schema processing..."
+          
+          # Make sure we use the installed AWS CLI
+          export PATH=$HOME/bin:$PATH
 
           for schema_file in schema/*.json; do
             schema_name=$(basename "$schema_file" .json)
@@ -94,15 +89,16 @@ jobs:
 
             # Check whether schema exists
             if aws glue get-schema --schema-id SchemaName="$schema_name",RegistryName=d2cSchemaRegistry >/dev/null 2>&1; then
-          
               echo "Schema exists → Updating schema $schema_name"
+           
+              # Use file:// syntax for schema-definition to handle multi-line JSON
               aws glue update-schema \
                 --schema-id SchemaName="$schema_name",RegistryName=d2cSchemaRegistry \
                 --schema-definition file://$schema_file
 
             else
-          
               echo "Schema does not exist → Creating schema $schema_name"
+          
               aws glue create-schema \
                 --registry-id RegistryName=d2cSchemaRegistry \
                 --schema-name "$schema_name" \
