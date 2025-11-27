@@ -38,7 +38,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-west-2   # <-- Must match the region where your registry exists
+          aws-region: ${{ inputs.region }}
 
       # Step 3: Install Python dependencies
       - name: Install dependencies
@@ -53,14 +53,16 @@ jobs:
           import boto3
           import os
           from botocore.exceptions import ClientError
-          
-          # AWS region must match the Glue registry region
-          REGION = "ap-south-1"
+
+          # Use region from input
+          import os
+          REGION = os.environ.get("AWS_REGION", "us-west-2")
           glue = boto3.client('glue', region_name=REGION)
+
           schema_registry = "d2cSchemaRegistry"
           schema_dir = "schema"
-          
-          # Step 0: Ensure registry exists
+
+          # Ensure registry exists
           try:
               glue.get_registry(RegistryId={'RegistryName': schema_registry})
               print(f"Registry '{schema_registry}' exists.")
@@ -70,23 +72,25 @@ jobs:
                   glue.create_registry(RegistryName=schema_registry)
               else:
                   raise e
-          
-          # Step 1: Iterate through schemas
+
+          # Iterate through schemas
           for file_name in os.listdir(schema_dir):
               if not file_name.endswith(".json"):
                   continue
-          
+
               schema_name = file_name.replace(".json", "")
               schema_file_path = os.path.join(schema_dir, file_name)
-          
+
               with open(schema_file_path) as f:
                   schema_definition = f.read()
-          
+
               try:
                   # Check if schema exists
                   glue.get_schema(SchemaId={'SchemaName': schema_name, 'RegistryName': schema_registry})
-                  print(f"Schema exists → Updating schema {schema_name}")
-                  glue.update_schema(
+                  print(f"Schema exists → Registering new version for schema {schema_name}")
+
+                  # Correct way to update schema definition
+                  glue.register_schema_version(
                       SchemaId={'SchemaName': schema_name, 'RegistryName': schema_registry},
                       SchemaDefinition=schema_definition
                   )
@@ -99,6 +103,6 @@ jobs:
                       Compatibility='NONE',
                       SchemaDefinition=schema_definition
                   )
-          
+
           print("Glue Schema Deployment Completed Successfully")
           EOF
