@@ -94,7 +94,7 @@ jobs:
               echo "Schema exists → Updating schema $schema_name"
               aws glue update-schema \
                 --schema-id SchemaName="$schema_name",RegistryName=d2cSchemaRegistry \
-                --schema-definition "$(jq -c '.' "$schema_file")"
+                --schema-definition file://$schema_file
 
             else
           
@@ -104,7 +104,7 @@ jobs:
                 --schema-name "$schema_name" \
                 --data-format JSON \
                 --compatibility NONE \
-                --schema-definition "$(cat $schema_file)"
+                --schema-definition file://$schema_file
             fi
           done
 
