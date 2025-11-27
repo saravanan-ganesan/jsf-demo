@@ -28,84 +28,62 @@ jobs:
     environment: ${{ inputs.environment }}
 
     steps:
-      # ---------------------------------------------------------
       # Step 1: Checkout repository
-      # ---------------------------------------------------------
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Checkout Repo
+        uses: actions/checkout@v3
 
-      # ---------------------------------------------------------
-      # Step 2: Configure AWS Credentials by assuming role
-      # (Update role-to-assume based on your AWS account setup)
-      # ---------------------------------------------------------
+      # Step 2: Configure AWS credentials
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-west-2
+          aws-region: ap-south-1
 
-      # ---------------------------------------------------------
-      # Step 3: Install AWS CLI V2
-      # (GitHub Actions runner has AWS CLI v1 by default,
-      # and Glue Schema Registry is only supported in AWS CLI v2.)
-      # ---------------------------------------------------------
-      - name: Install AWS CLI v2
+      # Step 3: Install Python dependencies
+      - name: Install dependencies
         run: |
-          echo "Installing AWS CLI v2 in $HOME/bin..."
-          
-          mkdir -p $HOME/aws-cli-install
-          cd $HOME/aws-cli-install
-          
-          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-          unzip -o awscliv2.zip
-          
-          # Install AWS CLI to user directory
-          ./aws/install --install-dir $HOME/aws-cli --bin-dir $HOME/bin --update
-          
-          # Ensure correct CLI is used
-          export PATH=$HOME/bin:$PATH
-          echo "$HOME/bin" >> $GITHUB_PATH
-          
-          # Verify installation
-          which aws
-          aws --version
+          python -m pip install --upgrade pip
+          pip install boto3
 
-      # ---------------------------------------------------------
-      # Step 4: Create/Update Glue Schema
-      # ---------------------------------------------------------
+      # Step 4: Deploy Glue Schemas using Python
       - name: Deploy Glue Schemas
         run: |
-          set -e
-          echo "Starting Glue Schema processing..."
+          python << 'EOF'
+          import boto3
+          import os
           
-          # Make sure we use the installed AWS CLI
-          export PATH=$HOME/bin:$PATH
-
-          for schema_file in schema/*.json; do
-            schema_name=$(basename "$schema_file" .json)
-
-            echo "Processing schema: $schema_name"
-
-            # Check whether schema exists
-            if aws glue get-schema --schema-id SchemaName="$schema_name",RegistryName=d2cSchemaRegistry >/dev/null 2>&1; then
-              echo "Schema exists → Updating schema $schema_name"
-           
-              # Use file:// syntax for schema-definition to handle multi-line JSON
-              aws glue update-schema \
-                --schema-id SchemaName="$schema_name",RegistryName=d2cSchemaRegistry \
-                --schema-definition file://$schema_file
-
-            else
-              echo "Schema does not exist → Creating schema $schema_name"
+          glue = boto3.client('glue', region_name='ap-south-1')
+          schema_registry = "d2cSchemaRegistry"
+          schema_dir = "schema"
           
-              aws glue create-schema \
-                --registry-id RegistryName=d2cSchemaRegistry \
-                --schema-name "$schema_name" \
-                --data-format JSON \
-                --compatibility NONE \
-                --schema-definition file://$schema_file
-            fi
-          done
-
-          echo "Glue Schema Deployment Completed Successfully"
+          for file_name in os.listdir(schema_dir):
+              if not file_name.endswith(".json"):
+                  continue
+          
+              schema_name = file_name.replace(".json", "")
+              schema_file_path = os.path.join(schema_dir, file_name)
+          
+              with open(schema_file_path) as f:
+                  schema_definition = f.read()
+          
+              try:
+                  # Check if schema exists
+                  glue.get_schema(SchemaId={'SchemaName': schema_name, 'RegistryName': schema_registry})
+                  print(f"Schema exists → Updating schema {schema_name}")
+                  glue.update_schema(
+                      SchemaId={'SchemaName': schema_name, 'RegistryName': schema_registry},
+                      SchemaDefinition=schema_definition
+                  )
+              except glue.exceptions.EntityNotFoundException:
+                  print(f"Schema does not exist → Creating schema {schema_name}")
+                  glue.create_schema(
+                      RegistryId={'RegistryName': schema_registry},
+                      SchemaName=schema_name,
+                      DataFormat='JSON',
+                      Compatibility='NONE',
+                      SchemaDefinition=schema_definition
+                  )
+          
+          print("Glue Schema Deployment Completed Successfully")
+          EOF
