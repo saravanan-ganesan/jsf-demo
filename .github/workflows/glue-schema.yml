@@ -32,6 +32,11 @@ jobs:
           REGISTRY_NAME="d2cSchemaRegistry"
           REGION="${{ inputs.region }}"
 
+          created_count=0
+          updated_count=0
+          created_names=()
+          updated_names=()
+
           # Check if registry exists
           if ! aws glue get-registry --registry-id RegistryName=$REGISTRY_NAME >/dev/null 2>&1; then
             echo "*** ERROR: Glue Registry '$REGISTRY_NAME' does not exist in region $REGION. Cannot continue. ***"
@@ -48,6 +53,8 @@ jobs:
               aws glue register-schema-version \
                 --schema-id SchemaName="$SCHEMA_NAME",RegistryName="$REGISTRY_NAME" \
                 --schema-definition file://"$SCHEMA_FILE"
+                updated_count=$((updated_count + 1))
+                updated_names+=("$SCHEMA_NAME")
             else
               echo "Schema does not exist → Creating schema $SCHEMA_NAME"
               aws glue create-schema \
@@ -56,7 +63,26 @@ jobs:
                 --data-format JSON \
                 --compatibility NONE \
                 --schema-definition file://"$SCHEMA_FILE"
+                created_count=$((created_count + 1))
+                created_names+=("$SCHEMA_NAME")
             fi
           done
 
-          echo "Glue Schema Deployment Completed Successfully"
+          echo "----------------------------------------"
+          echo "Schemas Created: $created_count"
+          for name in "${created_names[@]}"; do
+          echo "  - $name"
+          done
+          echo "----------------------------------------"
+          echo ""
+          
+          echo "----------------------------------------"
+          echo "Schema Versions Registered (Updated): $updated_count"
+          for name in "${updated_names[@]}"; do
+          echo "  - $name"
+          done
+          echo "----------------------------------------"
+          echo ""
+          
+          echo "*** Glue Schema Deployment Completed Successfully ***"
+         
