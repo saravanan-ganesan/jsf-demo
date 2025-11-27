@@ -13,8 +13,8 @@
       "type": "string",
       "description": "User first name"
     },
-    "lastName": {
-      "type": "string"
+    "age": {
+      "type": "integer"
     },
     "address": {
       "type": "object",
