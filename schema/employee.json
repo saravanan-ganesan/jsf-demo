@@ -9,26 +9,6 @@
       "type": "string",
       "description": "Unique user identifier (UUID)"
     },
-    "firstName": {
-      "type": "string",
-      "description": "User first name"
-    },
-    "age": {
-      "type": "integer"
-    },
-    "address": {
-      "type": "object",
-      "description": "User primary address",
-      "properties": {
-        "line1": { "type": "string" },
-        "line2": { "type": "string" },
-        "city": { "type": "string" },
-        "state": { "type": "string" },
-        "postalCode": { "type": "string" },
-        "country": { "type": "string" }
-      },
-      "required": ["line1", "city", "postalCode", "country"]
-    },
     "isActive": {
       "type": "boolean",
       "description": "Account active status"
