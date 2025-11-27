@@ -1,4 +1,4 @@
-name: Glue Schema Deployment
+name: Glue Schema Deployment (CLI only)
 
 on:
   workflow_dispatch:
@@ -8,31 +8,15 @@ on:
         required: true
         default: "us-west-2"
         type: string
-      business-unit:
-        description: "Business unit (if applicable)"
-        required: false
-        type: string
-
-permissions:
-  id-token: write
-  contents: write
-  checks: read
-  security-events: read
-  actions: write
-  pull-requests: write
-  packages: read
 
 jobs:
   glue_schema_setup:
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
 
     steps:
-      # Step 1: Checkout repository
       - name: Checkout Repo
         uses: actions/checkout@v3
 
-      # Step 2: Configure AWS credentials
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -40,82 +24,68 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ inputs.region }}
 
-      # Step 3: Install Python dependencies
-      - name: Install dependencies
+      - name: Deploy Glue Schemas (CLI only)
         run: |
-          python -m pip install --upgrade pip
-          pip install boto3
+          set -e
 
-      # Step 4: Deploy Glue Schemas using Python
-      - name: Deploy Glue Schemas
-        run: |
-          python << 'EOF'
-          """
-          WHY PYTHON IS USED:
-          -------------------
-          1. AWS CLI cannot update Glue schema definitions. The `aws glue update-schema` CLI
-             command only supports metadata updates like `--compatibility` or `--description`.
-          2. To actually change the schema JSON, we must use the boto3 API `register_schema_version()`.
-          3. Python with boto3 allows:
-             - Creating new schemas if they don't exist
-             - Updating existing schemas by registering new schema versions
-             - Handling multi-line JSON schema files safely
-          4. CLI alone cannot perform schema content updates, hence Python is required here.
-          """
+          SCHEMA_DIR="schema"
+          REGISTRY_NAME="d2cSchemaRegistry"
+          REGION="${{ inputs.region }}"
 
-          import boto3
-          import os
-          import sys
-          from botocore.exceptions import ClientError, BotoCoreError, NoCredentialsError
+          created_count=0
+          updated_count=0
+          created_names=()
+          updated_names=()
 
-          REGION = os.environ.get("AWS_REGION", "us-west-2")
-          glue = boto3.client('glue', region_name=REGION)
+          aws glue delete-schema \
+          --schema-id SchemaName="user",RegistryName="d2cSchemaRegistry"
+  
+          # Check if registry exists
+          if ! aws glue get-registry --registry-id RegistryName=$REGISTRY_NAME >/dev/null 2>&1; then
+            echo "*** ERROR: Glue Registry '$REGISTRY_NAME' does not exist in region $REGION. Cannot continue. ***"
+            exit 1
+          fi
+          echo "Registry '$REGISTRY_NAME' exists."
 
-          schema_registry = "d2cSchemaRegistry"
-          schema_dir = "schema"
+          for SCHEMA_FILE in "$SCHEMA_DIR"/*.json; do
+            SCHEMA_NAME=$(basename "$SCHEMA_FILE" .json)
 
-          # Ensure registry exists — fail if not
-          try:
-              glue.get_registry(RegistryId={'RegistryName': schema_registry})
-              print(f"Registry '{schema_registry}' exists.")
-          except ClientError as e:
-              if e.response['Error']['Code'] == 'EntityNotFoundException':
-                  print(f"*** ERROR: Glue Registry '{schema_registry}' does not exist in region {REGION}. Cannot continue. ***")
-                  sys.exit(1)
-              else:
-                  print(f"*** ERROR: Unexpected AWS error: {e} ***")
-                  sys.exit(1)
+            # Check if schema exists
+            if aws glue get-schema --schema-id SchemaName="$SCHEMA_NAME",RegistryName="$REGISTRY_NAME" >/dev/null 2>&1; then
+              echo "Schema exists → Registering new version for schema $SCHEMA_NAME"
+              aws glue register-schema-version \
+                --schema-id SchemaName="$SCHEMA_NAME",RegistryName="$REGISTRY_NAME" \
+                --schema-definition file://"$SCHEMA_FILE"
+                updated_count=$((updated_count + 1))
+                updated_names+=("$SCHEMA_NAME")
+            else
+              echo "Schema does not exist → Creating schema $SCHEMA_NAME"
+              aws glue create-schema \
+                --registry-id RegistryName="$REGISTRY_NAME" \
+                --schema-name "$SCHEMA_NAME" \
+                --data-format JSON \
+                --compatibility NONE \
+                --schema-definition file://"$SCHEMA_FILE"
+                created_count=$((created_count + 1))
+                created_names+=("$SCHEMA_NAME")
+            fi
+          done
 
-          # Iterate through schemas
-          for file_name in os.listdir(schema_dir):
-              if not file_name.endswith(".json"):
-                  continue
-
-              schema_name = file_name.replace(".json", "")
-              schema_file_path = os.path.join(schema_dir, file_name)
-
-              with open(schema_file_path) as f:
-                  schema_definition = f.read()
-
-              try:
-                  # Check if schema exists
-                  glue.get_schema(SchemaId={'SchemaName': schema_name, 'RegistryName': schema_registry})
-                  print(f"Schema exists → Registering new version for schema {schema_name}")
-
-                  # Correct way to update schema definition
-                  glue.register_schema_version(
-                      SchemaId={'SchemaName': schema_name, 'RegistryName': schema_registry},
-                      SchemaDefinition=schema_definition
-                  )
-              except glue.exceptions.EntityNotFoundException:
-                  print(f"Schema does not exist → Creating schema {schema_name}")
-                  glue.create_schema(
-                      RegistryId={'RegistryName': schema_registry},
-                      SchemaName=schema_name,
-                      DataFormat='JSON',
-                      Compatibility='NONE',
-                      SchemaDefinition=schema_definition
-                  )
-
-          print("Glue Schema Deployment Completed Successfully")
-          EOF
+          echo "----------------------------------------"
+          echo "Schemas Created: $created_count"
+          for name in "${created_names[@]}"; do
+          echo "  - $name"
+          done
+          echo "----------------------------------------"
+          echo ""
+          
+          echo "----------------------------------------"
+          echo "Schema Versions Registered (Updated): $updated_count"
+          for name in "${updated_names[@]}"; do
+          echo "  - $name"
+          done
+          echo "----------------------------------------"
+          echo ""
+          
+          echo "*** Glue Schema Deployment Completed Successfully ***"
+         
