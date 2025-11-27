@@ -22,6 +22,10 @@
       "type": "string",
       "description": "User last name"
     },
+    "age": {
+      "type": "integer"
+    },
+
     "address": {
       "type": "object",
       "description": "User primary address",
