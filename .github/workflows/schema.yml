@@ -38,7 +38,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ap-south-1
+          aws-region: us-west-2   # <-- Must match the region where your registry exists
 
       # Step 3: Install Python dependencies
       - name: Install dependencies
@@ -52,11 +52,26 @@ jobs:
           python << 'EOF'
           import boto3
           import os
+          from botocore.exceptions import ClientError
           
-          glue = boto3.client('glue', region_name='ap-south-1')
+          # AWS region must match the Glue registry region
+          REGION = "ap-south-1"
+          glue = boto3.client('glue', region_name=REGION)
           schema_registry = "d2cSchemaRegistry"
           schema_dir = "schema"
           
+          # Step 0: Ensure registry exists
+          try:
+              glue.get_registry(RegistryId={'RegistryName': schema_registry})
+              print(f"Registry '{schema_registry}' exists.")
+          except ClientError as e:
+              if e.response['Error']['Code'] == 'EntityNotFoundException':
+                  print(f"Registry '{schema_registry}' does not exist → Creating it.")
+                  glue.create_registry(RegistryName=schema_registry)
+              else:
+                  raise e
+          
+          # Step 1: Iterate through schemas
           for file_name in os.listdir(schema_dir):
               if not file_name.endswith(".json"):
                   continue
